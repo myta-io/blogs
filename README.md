@@ -1,3 +1,3 @@
 # Myta blogs
 
-This repository will feature plogs posted by Myta and its employees.
+This repository will feature blogs posted by Myta and its employees.
