@@ -1,0 +1,38 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-family-azure
+spec:
+  package: xpkg.upbound.io/upbound/provider-family-azure:v1.11.0
+  runtimeConfigRef:
+    name: workload-identity-config
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-managedidentity
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-managedidentity:v1.11.0
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    name: workload-identity-config
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-authorization
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-authorization:v1.11.0
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    name: workload-identity-config
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-azure-storage
+spec:
+  package: xpkg.upbound.io/upbound/provider-azure-storage:v1.11.0
+  skipDependencyResolution: true
+  runtimeConfigRef:
+    name: workload-identity-config

@@ -1,0 +1,137 @@
+### XRD ###
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: azureapps.azure.example.org
+spec:
+  group: crossplane.io
+  names:
+    kind: zureApp
+    plural: azureapps
+  claimNames:
+    kind: AzureAppClaim
+    plural: azureappsclaims
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  properties:
+                    resourceGroupName:
+                      type: string
+                    location:
+                      type: string
+                    managedIdentityName:
+                      type: string
+                    subscriptionID:
+                      type: string
+                    storageAccountName:
+                      type: string
+                    scope:
+                      type: string
+                    roleDefinitionName:
+                      type: string
+          status:
+            type: object
+            properties:
+              principalId:
+                type: string
+                description: "Stores the principal ID from the Azure Managed Identity"
+---
+### Composition ###
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: azure-apps
+spec:
+  compositeTypeRef:
+    apiVersion: crossplane.io
+    kind: AzureApp
+  resources:
+    - name: resource-group
+      base:
+        apiVersion: azure.upbound.io/v1beta1
+        kind: ResourceGroup
+        spec:
+          forProvider:
+            location: West Europe
+      patches:
+        - fromFieldPath: "spec.parameters.resourceGroupName"
+          toFieldPath: "spec.forProvider.name"
+        - fromFieldPath: "spec.parameters.location"
+          toFieldPath: "spec.forProvider.location"
+    - name: storage-account
+      base:
+        apiVersion: storage.azure.upbound.io/v1beta1
+        kind: Account
+        spec:
+          forProvider:
+            accountKind: StorageV2
+            accountReplicationType: LRS
+            accountTier: Standard
+            isHnsEnabled: true
+      patches:
+        - fromFieldPath: "spec.parameters.resourceGroupName"
+          toFieldPath: "spec.forProvider.resourceGroupName"
+        - fromFieldPath: "spec.parameters.location"
+          toFieldPath: "spec.forProvider.location"
+        - fromFieldPath: "spec.parameters.storageAccountName"
+          toFieldPath: "metadata.name"
+    - name: managed-identity
+      base:
+        apiVersion: managedidentity.azure.upbound.io/v1beta1
+        kind: UserAssignedIdentity
+        spec:
+          forProvider: {}
+      patches:
+        - fromFieldPath: "spec.parameters.resourceGroupName"
+          toFieldPath: "spec.forProvider.resourceGroupName"
+        - fromFieldPath: "spec.parameters.location"
+          toFieldPath: "spec.forProvider.location"
+        - fromFieldPath: "spec.parameters.managedIdentityName"
+          toFieldPath: "spec.forProvider.name"
+    - name: federated-identity-credential
+      base:
+        apiVersion: managedidentity.azure.upbound.io/v1beta1
+        kind: FederatedIdentityCredential
+        spec:
+          forProvider:
+            issuer: "https://issuer"
+            audience:
+              - "api://AzureADTokenExchange"
+            subject: "foo"
+      patches:
+        - fromFieldPath: "spec.parameters.resourceGroupName"
+          toFieldPath: "spec.forProvider.resourceGroupName"
+        - type: FromCompositeFieldPath
+          fromFieldPath: "spec.parameters.managedIdentityName"
+          toFieldPath: "metadata.name"
+        - type: PatchSet
+          patchSetName: "set-parent"
+          patches:
+            - type: FromResourceFieldPath
+              fromResource: managed-identity
+              fromFieldPath: "status.atProvider.id"
+              toFieldPath: "spec.forProvider.parentId"
+    - name: role-assignment
+      base:
+        apiVersion: authorization.azure.upbound.io/v1beta1
+        kind: RoleAssignment
+        spec:
+          forProvider:
+            principalId: principal_id # this is unknown
+            roleDefinitionName: Reader
+            scope: "/subscriptions/<subscription_id>/resourceGroups/<resource_group>/providers/Microsoft.Storage/storageAccounts/example"
+      patches:
+        - type: FromResourceFieldPath
+          fromResource: managed-identity
+          fromFieldPath: "status.atProvider.principalId"
+          toFieldPath: "spec.forProvider.principalId"
