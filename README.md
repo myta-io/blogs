@@ -1,2 +1,3 @@
-# blogs
-Blog featuring crossplane composition functions
+# Myta blogs
+
+This repository will feature plogs posted by Myta and its employees.
