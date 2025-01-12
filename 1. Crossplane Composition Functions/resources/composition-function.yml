@@ -1,0 +1,184 @@
+### XRD ###
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: azureapps.crossplane.io
+spec:
+  group: crossplane.io
+  names:
+    kind: AzureApp
+    plural: azureapps
+  claimNames:
+    kind: AzureAppClaim
+    plural: azureappclaims
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  properties:
+                    resourceGroup:
+                      type: string
+                    subscription:
+                      type: string
+                    tenant:
+                      type: string
+                    managedIdentity:
+                      type: string
+                    storageAccount:
+                      type: string
+                    roles:
+                      type: array
+                      items:
+                        type: string
+            status:
+              type: object
+              properties:
+                principalId:
+                  type: string
+---
+### Composition ###
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: example
+spec:
+  compositeTypeRef:
+    apiVersion: crossplane.io/v1alpha1
+    kind: AzureApp
+  mode: Pipeline # We add this so Crossplane knows we are going to be using Functions
+  pipeline:
+    - step: create-resources
+      functionRef:
+        name: function-patch-and-transform
+      input:
+        apiVersion: pt.fn.crossplane.io/v1beta1
+        kind: Resources
+        resources:
+          - name: resource-group
+            base:
+              apiVersion: azure.upbound.io/v1beta1
+              kind: ResourceGroup
+              metadata:
+                labels: 
+                  testing.upbound.io/example-name: resource-group
+              spec:
+                forProvider:
+                  location: West Europe
+            patches:
+              - fromFieldPath: "spec.parameters.resourceGroup"
+                toFieldPath: "spec.forProvider.name"
+          - name: storage-account
+            base:
+              apiVersion: storage.azure.upbound.io/v1beta1
+              kind: Account
+              spec:
+                forProvider:
+                  accountKind: StorageV2
+                  accountReplicationType: LRS
+                  accountTier: Standard
+                  isHnsEnabled: true
+                  location: West Europe
+                  resourceGroupNameSelector:
+                    matchLabels:
+                      testing.upbound.io/example-name: resource-group
+            patches:
+              - fromFieldPath: "spec.parameters.storageAccount"
+                toFieldPath: "metadata.name"
+          - name: managed-identity
+            base:
+              apiVersion: managedidentity.azure.upbound.io/v1beta1
+              kind: UserAssignedIdentity
+              metadata:
+                labels:
+                  testing.upbound.io/example-name: managed-identity
+              spec:
+                forProvider:
+                  location: West Europe
+                  resourceGroupNameSelector:
+                    matchLabels:
+                      testing.upbound.io/example-name: resource-group
+            patches:
+              - fromFieldPath: "spec.parameters.managedIdentity"
+                toFieldPath: "spec.forProvider.name"
+              - type: ToCompositeFieldPath
+                fromFieldPath: "status.atProvider.principalId"
+                toFieldPath: "status.principalId"
+          - name: federated-credential
+            base:
+              apiVersion: managedidentity.azure.upbound.io/v1beta1
+              kind: FederatedIdentityCredential
+              spec:
+                forProvider:
+                  issuer: "https://issuer"
+                  audience:
+                    - "api://AzureADTokenExchange"
+                  subject: "system:serviceaccount:namespace:application"
+                  parentIdSelector:
+                    matchLabels:
+                      testing.upbound.io/example-name: managed-identity
+                  resourceGroupNameSelector:
+                    matchLabels:
+                      testing.upbound.io/example-name: resource-group
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: "spec.parameters.managedIdentity"
+                toFieldPath: "metadata.name"
+    - step: create-role-assignments
+      functionRef:
+        name: function-go-templating
+      input:
+        apiVersion: gotemplating.fn.crossplane.io/v1beta1
+        kind: GoTemplate
+        source: Inline
+        inline:
+          template: |
+            {{- $subscription := .observed.composite.resource.spec.parameters.subscription -}}
+            {{- $resourceGroup := .observed.composite.resource.spec.parameters.resourceGroup -}}
+            {{- $roles := $composite.spec.parameters.roles -}}
+            {{- $principalId := $composite.status.principalId -}}
+            {{ range $index, $roleName := $roles }}
+            ---
+            apiVersion: authorization.azure.upbound.io/v1beta1
+            kind: RoleAssignment
+            metadata:
+              name: roleassignment-{{ $index }}
+              annotations:
+                gotemplating.fn.crossplane.io/composition-resource-name: roleassignment-{{ $index }}
+            spec:
+              forProvider:
+                name: roleassignment-{{ $index }}
+                scope: {{ /subscriptions/{{ $subscription }}/resourceGroups/{{ $resourceGroup }}/providers/Microsoft.Storage/storageAccounts/example }}
+                roleDefinitionName: "{{ $roleName }}"
+                principalId: "{{ $principalId }}"
+              providerConfigRef:
+                name: workload-identity-provider-config
+            {{- end }}
+---
+### XR ###
+apiVersion: crossplane.io
+kind: AzureApp
+metadata:
+  name: example
+spec:
+  compositionRef:
+    name: azure-apps
+  parameters:
+    resourceGroup: resource-group
+    subscription: 12345678-aaaa-bbbb-cccc-123456789012
+    managedIdentity: managed-identity
+    storageAccount: example
+    roles:
+      - Reader
+      - Contributor
+      - Storage Blob Data Reader
+      - Storage Table Data Contributor
+      - Role Based Access Control Administrator

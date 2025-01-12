@@ -1,0 +1,67 @@
+apiVersion: azure.upbound.io/v1beta1
+kind: ResourceGroup
+metadata:
+  name: resource-group
+  labels:
+    testing.upbound.io/example-name: resource-group
+spec:
+  forProvider:
+    location: West Europe
+    tags:
+      provisioner: crossplane
+---
+apiVersion: storage.azure.upbound.io/v1beta1
+kind: Account
+metadata:
+  name: storage-account
+spec:
+  forProvider:
+    accountKind: StorageV2
+    accountReplicationType: LRS
+    accountTier: Standard
+    isHnsEnabled: true
+    location: West Europe
+    resourceGroupNameSelector:
+      matchLabels:
+        testing.upbound.io/example-name: resource-group
+---
+apiVersion: authorization.azure.upbound.io/v1beta1
+kind: RoleAssignment
+metadata:
+  name: role-assignment
+spec:
+  forProvider:
+    principalId: principal_id # this is unknown
+    roleDefinitionName: Reader
+    scope: "/subscriptions/<subscription_id>/resourceGroups/<resource_group>/providers/Microsoft.Storage/storageAccounts/example"
+---
+apiVersion: managedidentity.azure.upbound.io/v1beta1
+kind: UserAssignedIdentity
+metadata:
+  name: managed-identity
+  labels:
+    testing.upbound.io/example-name: managed-identity
+spec:
+  forProvider:
+    location: West Europe
+    name: exmplemanagidentity
+    resourceGroupNameSelector:
+      matchLabels:
+        testing.upbound.io/example-name: managidentity-rg
+---
+apiVersion: managedidentity.azure.upbound.io/v1beta1
+kind: FederatedIdentityCredential
+metadata:
+  name: federated-credential
+spec:
+  forProvider:
+    audience:
+      - "api://AzureADTokenExchange"
+    issuer: https://issuer
+    parentIdSelector:
+      matchLabels:
+        testing.upbound.io/example-name: managed-identity
+    resourceGroupNameSelector:
+      matchLabels:
+        testing.upbound.io/example-name: resource-group
+    subject: system:serviceaccount:namespace:application
